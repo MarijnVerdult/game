@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Walking Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #2c3e50;
+            font-family: Arial, sans-serif;
+        }
+        
+        .game-container {
+            border: 3px solid #34495e;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            background-color: #ecf0f1;
+        }
+        
+        canvas {
+            display: block;
+            background-color: #95a5a6;
+        }
+        
+        .instructions {
+            text-align: center;
+            color: white;
+            margin-top: 20px;
+        }
+        
+        .instructions h1 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+        
+        .instructions p {
+            margin: 5px 0;
+            font-size: 16px;
+        }
+        
+        .audio-controls {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: rgba(52, 73, 94, 0.8);
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        .audio-controls button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .audio-controls button:hover {
+            background-color: #2980b9;
+        }
+        
+        .audio-controls button:disabled {
+            background-color: #7f8c8d;
+            cursor: not-allowed;
+        }
+        
+        .audio-controls label {
+            color: white;
+            font-size: 14px;
+            margin-right: 5px;
+        }
+        
+        .audio-controls input[type="range"] {
+            width: 100px;
+        }
+        
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-10px); }
+            15% { opacity: 1; transform: translateY(0); }
+            85% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-10px); }
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <div class="game-container">
+            <canvas id="gameCanvas" width="800" height="600"></canvas>
+        </div>
+        <!-- Audio element for background music -->
+        <audio id="backgroundMusic" loop>
+            <source src="HR Adventures soundtrack.mp3" type="audio/mpeg">
+            Your browser does not support the audio element.
+        </audio>
+        <div class="instructions">
+            <h1>Simple Walking Game</h1>
+            <p>Use WASD or Arrow Keys to move around</p>
+            <p>Press SPACE or ENTER near objects to interact</p>
+            <p>Navigate through the office maze!</p>
+        </div>
+    </div>
+
+    <script>
+        // Game variables
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Audio variables
+        const backgroundMusic = document.getElementById('backgroundMusic');        
+        // Audio state
+        let isMusicPlaying = false;
+        let musicStarted = false;
+        let autoplayAttempted = false;
+        
+        // Game settings
+        const GAME_WIDTH = 800;
+        const GAME_HEIGHT = 600;
+        const PLAYER_SIZE = 80;
+        const PLAYER_SPEED = 3;
+        const BOUNDARY_PADDING = 10;
+        const WALL_THICKNESS = 12; // Increased for better 3D effect
+        
+        // Player object
+        const player = {
+            x: 50, // Start in the top-left room
+            y: 550,
+            size: PLAYER_SIZE,
+            color: '#e74c3c',
+            speed: PLAYER_SPEED
+        };
+        
+        // Plant system - using PNG image
+        const plantImage = new Image();
+        plantImage.src = 'potted-indoor-plant-pixel-art-png.png';
+        
+        // Desk system - using PNG images
+        const deskImage = new Image();
+        deskImage.src = 'desk.png';
+        
+        const desk2Image = new Image();
+        desk2Image.src = 'desk2.png';
+        
+        // Table system - using Gemini generated image
+        const tableImage = new Image();
+        tableImage.src = 'Gemini_Generated_Image_27dl1227dl1227dl.png';
+        
+        // Character sprite system
+        const characterSprites = {
+            walk1: new Image(),
+            walk2: new Image(),
+            walk3: new Image(),
+            walk4: new Image(),
+            idle: new Image()
+        };
+        
+        // Load character sprites
+        characterSprites.walk1.src = 'sprites/Walk1.png';
+        characterSprites.walk2.src = 'sprites/Walk2.png';
+        characterSprites.walk3.src = 'sprites/Walk3.png';
+        characterSprites.walk4.src = 'sprites/Walk4.png';
+        characterSprites.idle.src = 'sprites/Walk4.png'; // Using Walk4 as idle frame
+        
+        // Track sprite loading
+        let loadedSprites = 0;
+        const totalSprites = Object.keys(characterSprites).length;
+        
+        Object.keys(characterSprites).forEach(spriteName => {
+            characterSprites[spriteName].onload = () => {
+                loadedSprites++;
+                if (loadedSprites === totalSprites) {
+                    spritesLoaded = true;
+                }
+            };
+        });
+        
+        // Animation variables
+        let currentFrame = 0;
+        let frameCounter = 0;
+        const FRAME_DELAY = 10; // Frames per animation frame (lower = faster animation) - adjusted for better visibility
+        const WALK_FRAMES = ['walk1', 'walk2', 'walk3', 'walk4'];
+        let isMoving = false;
+        let facingRight = false; // true = right, false = left
+        let spritesLoaded = false; // Track if all sprites are loaded
+        
+        const plants = [
+            // Top-left room plant
+            { x: 220, y: 95, size: 50 },
+            { x: 455, y: 115, size: 60 },
+            // Top-right room plant  
+            { x: 535, y: 115, size: 40 },
+            { x: 570, y: 90, size: 30 },
+            // Bottom-left room plant (L-shaped room)
+            { x: 75, y: 375, size: 40 },
+            // Bottom-right room plant
+            { x: 735, y: 530, size: 40 },
+            // Center room plant
+            { x: 435, y: 425, size: 40 }
+        ];
+        
+        // Desk system - 4 desks with collision detection
+        const desks = [
+            // Top-left room desk
+            { x: 60, y: 40, width: 140, height: 120, collisionWidth: 100, collisionHeight: 60, image: deskImage },
+            // Top-right room desk (Alex's desk)
+            { x: 620, y: 40, width: 140, height: 120, collisionWidth: 80, collisionHeight: 60, image: deskImage, hasCharacter: true, characterName: 'Alex' },
+            // Bottom-left room desk (L-shaped room) - using desk2.png
+            { x: 300, y: 40, width: 140, height: 120, collisionWidth: 80, collisionHeight: 60, image: deskImage },
+            // Bottom-right room desk - using desk2.png
+            { x: 550, y: 350, width: 140, height: 120, collisionWidth: 80, collisionHeight: 60, image: deskImage }
+        ];
+        
+        // Table system - center table with collision detection
+        const table = {
+            x: 200, // Center of the room
+            y: 400, // Center of the room
+            width: 180, // Table width
+            height: 180, // Table height
+            collisionWidth: 120, // Collision area width (slightly smaller than visual)
+            collisionHeight: 100 // Collision area height (slightly smaller than visual)
+        };
+        
+        // Wall system - inspired by office floor plan
+        const walls = [
+            // Outer perimeter walls (creating rooms)
+            // Top section - left room
+            { x: 50, y: 50, width: 700, height: WALL_THICKNESS }, // top wall
+            { x: 50, y: 50, width: WALL_THICKNESS, height: 150 }, // left wall
+            { x: 250, y: 50, width: WALL_THICKNESS, height: 100 }, // right wall
+            { x: 500, y: 50, width: WALL_THICKNESS, height: 180 }, // right wall
+            { x: 750, y: 50, width: WALL_THICKNESS, height: 160 }, // right wall
+            
+            // Bottom section - right room
+            { x: 550, y: 350, width: 210, height: WALL_THICKNESS }, // bottom wall
+            { x: 550, y: 350, width: WALL_THICKNESS, height: 100 }, // left wall
+            { x: 750, y: 350, width: WALL_THICKNESS, height: 210 } // right wall
+    
+        ];
+        
+        // Dialogue system
+        let dialogueState = {
+            isOpen: false,
+            currentDialogue: null,
+            currentLine: 0,
+            currentChar: 0,
+            typingSpeed: 30, // milliseconds per character
+            typingTimer: null,
+            showingChoices: false,
+            currentChoices: null,
+            choiceSelected: false
+        };
+        
+        // Sample dialogue data
+        const dialogues = {
+            welcome: {
+                character: "Welcome to the HR Adventures",
+                lines: [
+                    "You discover that one of your top salespeople, Alex, is operating a small, online business on the side that sells a product similar to one your company offers...",
+                    "It's not a direct competitor, but there's a clear conflict of interest...",
+                    "You need to investigate further to determine if Alex is violating any company policies...",
+                    "You decide to meet with Alex to discuss the matter... Find Alex in the office and talk to him."
+                ]
+            },
+            desk_interaction: {
+                character: "Desk",
+                lines: [
+                    "This is a work desk. It looks like someone was working here recently.",
+                    "There are some papers scattered around...",
+                    "Maybe you should organize them later."
+                ]
+            },
+            alex_desk_interaction: {
+                character: "Alex",
+                lines: [
+                    "\"Hi, Dieter! Nice seeing you here, everything alright?\""                
+                ],
+                choices: [
+                    {
+                        text: "Immediately terminate Alex for a conflict of interest.",
+                        nextDialogue: "alex_terminate"
+                    },
+                    {
+                        text: "Tell Alex to shut down the business or find a new job.",
+                        nextDialogue: "alex_ultimatum"
+                    },
+                    {
+                        text: "Discuss the situation with Alex privately.",
+                        nextDialogue: "alex_discuss"
+                    },
+                    {
+                        text: "Do nothing.",
+                        nextDialogue: "alex_ignore"
+                    }
+                ]
+            },
+            alex_terminate: {
+                character: "Alex",
+                lines: [
+                    "\"Wait, what?! You're firing me? Just like that?\"",
+                    "\"I didn't even know this was against company policy!\"",
+                    "\"This is completely unfair - I've been a top performer for years!\"",
+                    "\"You're making a huge mistake, Dieter!\""
+                ]
+            },
+            alex_ultimatum: {
+                character: "Alex",
+                lines: [
+                    "\"So it's either my side business or my job? That's harsh.\"",
+                    "\"I've been with this company for 5 years and this is how you treat me?\"",
+                    "\"Fine. I'll shut it down. But this feels like a betrayal of trust.\"",
+                    "\"I hope you're happy with this decision.\""
+                ]
+            },
+            alex_discuss: {
+                character: "Alex",
+                lines: [
+                    "\"Thank you for approaching this professionally, Dieter.\"",
+                    "\"I understand the conflict of interest concern. I should have disclosed this earlier.\"",
+                    "\"I'm willing to work with you on this. What options do we have?\"",
+                    "\"I could either shut down the side business or restructure it to avoid conflicts.\"",
+                    "\"I appreciate you giving me a chance to resolve this properly.\""
+                ]
+            },
+            alex_ignore: {
+                character: "Alex",
+                lines: [
+                    "\"Thanks, Dieter. I appreciate your understanding.\"",
+                    "\"I've always kept my side business completely separate from work.\"",
+                    "\"It's just a small project I do in my spare time.\"",
+                    "\"I'll make sure it never interferes with my performance here.\"",
+                    "\"Thanks for being reasonable about this.\""
+                ]
+            },
+            plant_interaction: {
+                character: "Plant",
+                lines: [
+                    "This plant looks healthy and well-maintained.",
+                    "It's nice to have some greenery in the office.",
+                    "Plants help improve air quality!"
+                ]
+            },
+            table_interaction: {
+                character: "Lunch Table",
+                lines: [
+                    "Nothing to see here."
+                ]
+            }
+        };
+        
+        // Input handling
+        const keys = {
+            up: false,
+            down: false,
+            left: false,
+            right: false,
+            space: false,
+            enter: false
+        };
+        
+        // Event listeners for keyboard input
+        document.addEventListener('keydown', (e) => {
+            // Handle dialogue interactions first
+            if (dialogueState.isOpen) {
+                // Handle choice selection with number keys
+                if (dialogueState.showingChoices && dialogueState.currentChoices) {
+                    const choiceNumber = parseInt(e.key);
+                    if (choiceNumber >= 1 && choiceNumber <= dialogueState.currentChoices.length) {
+                        e.preventDefault();
+                        selectChoice(choiceNumber - 1);
+                        return;
+                    }
+                }
+                
+                if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    advanceDialogue();
+                    return;
+                }
+                // Don't process movement keys when dialogue is open
+                return;
+            }
+            
+            switch(e.key.toLowerCase()) {
+                case 'w':
+                case 'arrowup':
+                    keys.up = true;
+                    break;
+                case 's':
+                case 'arrowdown':
+                    keys.down = true;
+                    break;
+                case 'a':
+                case 'arrowleft':
+                    keys.left = true;
+                    break;
+                case 'd':
+                case 'arrowright':
+                    keys.right = true;
+                    break;
+                case ' ':
+                    keys.space = true;
+                    // Trigger dialogue when near objects
+                    triggerNearbyDialogue();
+                    break;
+                case 'enter':
+                    keys.enter = true;
+                    // Trigger dialogue when near objects
+                    triggerNearbyDialogue();
+                    break;
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            switch(e.key.toLowerCase()) {
+                case 'w':
+                case 'arrowup':
+                    keys.up = false;
+                    break;
+                case 's':
+                case 'arrowdown':
+                    keys.down = false;
+                    break;
+                case 'a':
+                case 'arrowleft':
+                    keys.left = false;
+                    break;
+                case 'd':
+                case 'arrowright':
+                    keys.right = false;
+                    break;
+                case ' ':
+                    keys.space = false;
+                    break;
+                case 'enter':
+                    keys.enter = false;
+                    break;
+            }
+        });
+        
+        // Update player position based on input
+        function updatePlayer() {
+            // Don't update player position if dialogue is open
+            if (dialogueState.isOpen) {
+                return;
+            }
+            
+            // Calculate new position
+            let newX = player.x;
+            let newY = player.y;
+            let wasMoving = isMoving;
+            
+            // Reset movement state
+            isMoving = false;
+            
+            if (keys.left) {
+                newX -= player.speed;
+                isMoving = true;
+                facingRight = false;
+            }
+            if (keys.right) {
+                newX += player.speed;
+                isMoving = true;
+                facingRight = true;
+            }
+            if (keys.up) {
+                newY -= player.speed;
+                isMoving = true;
+            }
+            if (keys.down) {
+                newY += player.speed;
+                isMoving = true;
+            }
+            
+            
+            // Boundary collision detection
+            const minX = BOUNDARY_PADDING + player.size / 2;
+            const maxX = GAME_WIDTH - BOUNDARY_PADDING - player.size / 2;
+            const minY = BOUNDARY_PADDING + player.size / 2;
+            const maxY = GAME_HEIGHT - BOUNDARY_PADDING - player.size / 2;
+            
+            // Check wall, desk, and table collisions before applying movement
+            if (!checkWallCollision(newX, player.y) && !checkDeskCollision(newX, player.y) && !checkTableCollision(newX, player.y) && newX >= minX && newX <= maxX) {
+                player.x = newX;
+            }
+            if (!checkWallCollision(player.x, newY) && !checkDeskCollision(player.x, newY) && !checkTableCollision(player.x, newY) && newY >= minY && newY <= maxY) {
+                player.y = newY;
+            }
+            
+            // Update animation
+            updateAnimation();
+        }
+        
+        // Update character animation
+        function updateAnimation() {
+            if (isMoving) {
+                // Animate walking
+                frameCounter++;
+                if (frameCounter >= FRAME_DELAY) {
+                    frameCounter = 0;
+                    currentFrame = (currentFrame + 1) % WALK_FRAMES.length;
+                }
+            } else {
+                // Reset to idle frame
+                currentFrame = 0;
+                frameCounter = 0;
+            }
+        }
+        
+        // Draw grid background
+        function drawGrid() {
+            const gridSize = 20; // Size of each grid cell
+            const gridColor = '#7f8c8d'; // Grid line color
+            const gridOpacity = 0.3; // Grid opacity
+            
+            ctx.strokeStyle = gridColor;
+            ctx.globalAlpha = gridOpacity;
+            ctx.lineWidth = 1;
+            
+            // Draw vertical lines
+            for (let x = BOUNDARY_PADDING; x <= GAME_WIDTH - BOUNDARY_PADDING; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, BOUNDARY_PADDING);
+                ctx.lineTo(x, GAME_HEIGHT - BOUNDARY_PADDING);
+                ctx.stroke();
+            }
+            
+            // Draw horizontal lines
+            for (let y = BOUNDARY_PADDING; y <= GAME_HEIGHT - BOUNDARY_PADDING; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(BOUNDARY_PADDING, y);
+                ctx.lineTo(GAME_WIDTH - BOUNDARY_PADDING, y);
+                ctx.stroke();
+            }
+            
+            // Reset global alpha
+            ctx.globalAlpha = 1;
+        }
+        
+        // Draw plants with pixel art style
+        function drawPlants() {
+            plants.forEach(plant => {
+                drawPixelPlant(plant);
+            });
+        }
+        
+        // Draw desks with pixel art style
+        function drawDesks() {
+            desks.forEach(desk => {
+                drawPixelDesk(desk);
+            });
+        }
+        
+        // Draw table with pixel art style
+        function drawTable() {
+            drawPixelTable(table);
+        }
+        
+        // Draw a single plant using PNG image
+        function drawPixelPlant(plant) {
+            const x = plant.x;
+            const y = plant.y;
+            const size = plant.size;
+            
+            // Only draw if image is loaded
+            if (plantImage.complete && plantImage.naturalWidth !== 0) {
+                // Draw the plant image centered at the plant position
+                ctx.drawImage(plantImage, 
+                    x - size/2, y - size/2, // position (centered)
+                    size, size // size
+                );
+            } else {
+                // Fallback: draw a simple placeholder while image loads
+                ctx.fillStyle = '#228B22';
+                ctx.fillRect(x - size/4, y - size/4, size/2, size/2);
+            }
+        }
+        
+        // Draw a single desk using PNG image
+        function drawPixelDesk(desk) {
+            const x = desk.x;
+            const y = desk.y;
+            const width = desk.width;
+            const height = desk.height;
+            const image = desk.image;
+            
+            // Only draw if image is loaded
+            if (image.complete && image.naturalWidth !== 0) {
+                // Draw the desk image at the desk position
+                ctx.drawImage(image, 
+                    x, y, // position (top-left corner)
+                    width, height // size
+                );
+            } else {
+                // Fallback: draw a simple placeholder while image loads
+                ctx.fillStyle = '#8B4513'; // Brown color for desk
+                ctx.fillRect(x, y, width, height);
+                
+                // Add some detail to make it look more like a desk
+                ctx.fillStyle = '#654321'; // Darker brown for desk surface
+                ctx.fillRect(x + 5, y + 5, width - 10, height - 10);
+                
+                // Add a simple monitor representation
+                ctx.fillStyle = '#2C3E50'; // Dark blue for monitor
+                ctx.fillRect(x + 15, y + 10, 20, 15);
+                
+                // Add keyboard
+                ctx.fillStyle = '#34495E'; // Dark gray for keyboard
+                ctx.fillRect(x + 10, y + 30, 30, 8);
+            }
+        }
+        
+        
+        // Draw a single table using PNG image
+        function drawPixelTable(tableObj) {
+            const x = tableObj.x;
+            const y = tableObj.y;
+            const width = tableObj.width;
+            const height = tableObj.height;
+            
+            // Only draw if image is loaded
+            if (tableImage.complete && tableImage.naturalWidth !== 0) {
+                // Draw the table image centered at the table position
+                ctx.drawImage(tableImage, 
+                    x - width/2, y - height/2, // position (centered)
+                    width, height // size
+                );
+            } else {
+                // Fallback: draw a simple placeholder while image loads
+                ctx.fillStyle = '#8B4513'; // Brown color for table
+                ctx.fillRect(x - width/2, y - height/2, width, height);
+                
+                // Add some detail to make it look more like a table
+                ctx.fillStyle = '#654321'; // Darker brown for table surface
+                ctx.fillRect(x - width/2 + 5, y - height/2 + 5, width - 10, height - 10);
+                
+                // Add table legs
+                ctx.fillStyle = '#4A4A4A'; // Dark gray for legs
+                ctx.fillRect(x - width/2 + 10, y + height/2 - 10, 8, 15);
+                ctx.fillRect(x + width/2 - 18, y + height/2 - 10, 8, 15);
+                ctx.fillRect(x - width/2 + 10, y - height/2 - 5, 8, 15);
+                ctx.fillRect(x + width/2 - 18, y - height/2 - 5, 8, 15);
+            }
+        }
+        
+        // Draw character sprite
+        function drawCharacter() {
+            const x = player.x;
+            const y = player.y;
+            const size = player.size;
+            
+            // Determine which sprite to use
+            let currentSprite;
+            let spriteName;
+            if (isMoving) {
+                spriteName = WALK_FRAMES[currentFrame];
+                currentSprite = characterSprites[spriteName];
+            } else {
+                spriteName = 'idle';
+                currentSprite = characterSprites.idle;
+            }
+            
+            
+            // Only draw if sprite is loaded
+            if (currentSprite.complete && currentSprite.naturalWidth !== 0) {
+                // Save the current canvas state
+                ctx.save();
+                
+                // Move to character position
+                ctx.translate(x, y);
+                
+                // Flip horizontally if facing right
+                if (facingRight) {
+                    ctx.scale(-1, 1);
+                }
+                
+                // Draw the sprite centered
+                ctx.drawImage(currentSprite, 
+                    -size/2, -size/2, // position (centered)
+                    size, size // size
+                );
+                
+                // Restore the canvas state
+                ctx.restore();
+            } else {
+                // Fallback: draw a simple circle while sprite loads
+                ctx.fillStyle = player.color;
+                ctx.beginPath();
+                ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Add a small highlight to make the player more visible
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(x - 5, y - 5, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Draw walls with 3D isometric effect
+        function drawWalls() {
+            walls.forEach(wall => {
+                draw3DWall(wall);
+            });
+        }
+        
+        // Draw a single wall with 3D isometric effect
+        function draw3DWall(wall) {
+            const wallThickness = WALL_THICKNESS;
+            const isometricOffset = wallThickness * 0.5; // Offset for isometric effect
+            
+            // Wall colors - corrected for looking from above
+            const wallTopColor = '#2980b9';      // Dark teal for top surface (what we see from above)
+            const wallSideColor = '#5dade2';     // Light teal for side faces (visible at angles)
+            const wallShadowColor = '#7f8c8d';   // Gray for shadows
+            
+            // Determine if this is a horizontal or vertical wall
+            const isHorizontal = wall.width > wall.height;
+            
+            // Draw wall shadow first (on the floor)
+            ctx.fillStyle = wallShadowColor;
+            ctx.globalAlpha = 0.3;
+            
+            if (isHorizontal) {
+                // Horizontal wall shadow
+                ctx.fillRect(wall.x + isometricOffset, wall.y + wallThickness, wall.width, wallThickness);
+            } else {
+                // Vertical wall shadow
+                ctx.fillRect(wall.x + wallThickness, wall.y + isometricOffset, wallThickness, wall.height);
+            }
+            ctx.globalAlpha = 1;
+            
+            // Draw the main wall body (top surface - what we see from above)
+            ctx.fillStyle = wallTopColor;
+            ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
+            
+            // Draw the side surfaces of the wall (isometric perspective)
+            ctx.fillStyle = wallSideColor;
+            ctx.beginPath();
+            
+            if (isHorizontal) {
+                // Horizontal wall side surfaces
+                ctx.moveTo(wall.x, wall.y);
+                ctx.lineTo(wall.x + wall.width, wall.y);
+                ctx.lineTo(wall.x + wall.width + isometricOffset, wall.y - isometricOffset);
+                ctx.lineTo(wall.x + isometricOffset, wall.y - isometricOffset);
+            } else {
+                // Vertical wall side surfaces
+                ctx.moveTo(wall.x, wall.y);
+                ctx.lineTo(wall.x + wallThickness, wall.y);
+                ctx.lineTo(wall.x + wallThickness + isometricOffset, wall.y - isometricOffset);
+                ctx.lineTo(wall.x + isometricOffset, wall.y - isometricOffset);
+            }
+            ctx.closePath();
+            ctx.fill();
+            
+            // Add highlight edges for more 3D effect
+            ctx.strokeStyle = '#85c1e9'; // Light blue highlight
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            
+            if (isHorizontal) {
+                // Horizontal wall highlights
+                // Top edge
+                ctx.moveTo(wall.x, wall.y);
+                ctx.lineTo(wall.x + wall.width, wall.y);
+                // Right edge
+                ctx.moveTo(wall.x + wall.width, wall.y);
+                ctx.lineTo(wall.x + wall.width + isometricOffset, wall.y - isometricOffset);
+                // Left edge
+                ctx.moveTo(wall.x, wall.y);
+                ctx.lineTo(wall.x + isometricOffset, wall.y - isometricOffset);
+            } else {
+                // Vertical wall highlights
+                // Top edge
+                ctx.moveTo(wall.x, wall.y);
+                ctx.lineTo(wall.x + wallThickness, wall.y);
+                // Right edge
+                ctx.moveTo(wall.x + wallThickness, wall.y);
+                ctx.lineTo(wall.x + wallThickness + isometricOffset, wall.y - isometricOffset);
+                // Left edge
+                ctx.moveTo(wall.x, wall.y);
+                ctx.lineTo(wall.x + isometricOffset, wall.y - isometricOffset);
+            }
+            ctx.stroke();
+            
+            // Add subtle inner shadow for depth
+            ctx.strokeStyle = '#1f618d'; // Dark blue shadow
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            
+            if (isHorizontal) {
+                // Horizontal wall inner shadow
+                ctx.moveTo(wall.x + 1, wall.y + wallThickness - 1);
+                ctx.lineTo(wall.x + wall.width - 1, wall.y + wallThickness - 1);
+            } else {
+                // Vertical wall inner shadow
+                ctx.moveTo(wall.x + wallThickness - 1, wall.y + 1);
+                ctx.lineTo(wall.x + wallThickness - 1, wall.y + wall.height - 1);
+            }
+            ctx.stroke();
+        }
+        
+        // Check collision between player and walls
+        function checkWallCollision(newX, newY) {
+            const playerRadius = player.size / 2;
+            
+            for (let wall of walls) {
+                // Check if player circle intersects with wall rectangle
+                // Use the base wall dimensions for collision (not the 3D visual effect)
+                const closestX = Math.max(wall.x, Math.min(newX, wall.x + wall.width));
+                const closestY = Math.max(wall.y, Math.min(newY, wall.y + wall.height));
+                
+                const distanceX = newX - closestX;
+                const distanceY = newY - closestY;
+                const distanceSquared = distanceX * distanceX + distanceY * distanceY;
+                
+                if (distanceSquared < playerRadius * playerRadius) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        // Check collision between player and desks
+        function checkDeskCollision(newX, newY) {
+            const playerRadius = player.size / 2;
+            
+            for (let desk of desks) {
+                // Check if player circle intersects with desk rectangle
+                const closestX = Math.max(desk.x, Math.min(newX, desk.x + desk.collisionWidth));
+                const closestY = Math.max(desk.y, Math.min(newY, desk.y + desk.collisionHeight));
+                
+                const distanceX = newX - closestX;
+                const distanceY = newY - closestY;
+                const distanceSquared = distanceX * distanceX + distanceY * distanceY;
+                
+                if (distanceSquared < playerRadius * playerRadius) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        // Check collision between player and table
+        function checkTableCollision(newX, newY) {
+            const playerRadius = player.size / 2;
+            
+            // Check if player circle intersects with table rectangle
+            // Table is centered, so we need to adjust the collision bounds
+            const tableLeft = table.x - table.collisionWidth / 2;
+            const tableRight = table.x + table.collisionWidth / 2;
+            const tableTop = table.y - table.collisionHeight / 2;
+            const tableBottom = table.y + table.collisionHeight / 2;
+            
+            const closestX = Math.max(tableLeft, Math.min(newX, tableRight));
+            const closestY = Math.max(tableTop, Math.min(newY, tableBottom));
+            
+            const distanceX = newX - closestX;
+            const distanceY = newY - closestY;
+            const distanceSquared = distanceX * distanceX + distanceY * distanceY;
+            
+            if (distanceSquared < playerRadius * playerRadius) {
+                return true;
+            }
+            
+            return false;
+        }
+        
+        // Dialogue system functions
+        function showDialogue(dialogueKey) {
+            if (dialogueState.isOpen) {
+                closeDialogue();
+            }
+            
+            const dialogue = dialogues[dialogueKey];
+            if (!dialogue) return;
+            
+            dialogueState.isOpen = true;
+            dialogueState.currentDialogue = dialogue;
+            dialogueState.currentLine = 0;
+            dialogueState.currentChar = 0;
+            dialogueState.showingChoices = false;
+            dialogueState.currentChoices = null;
+            dialogueState.choiceSelected = false;
+            
+            startTyping();
+        }
+        
+        function startTyping() {
+            const currentLine = dialogueState.currentDialogue.lines[dialogueState.currentLine];
+            if (dialogueState.currentChar < currentLine.length) {
+                dialogueState.currentChar++;
+                dialogueState.typingTimer = setTimeout(startTyping, dialogueState.typingSpeed);
+            }
+        }
+        
+        function advanceDialogue() {
+            if (!dialogueState.isOpen) return;
+            
+            const currentLine = dialogueState.currentDialogue.lines[dialogueState.currentLine];
+            
+            // Check if currentLine exists
+            if (!currentLine) {
+                closeDialogue();
+                return;
+            }
+            
+            // If still typing, complete the current line
+            if (dialogueState.currentChar < currentLine.length) {
+                clearTimeout(dialogueState.typingTimer);
+                dialogueState.currentChar = currentLine.length;
+                return;
+            }
+            
+            // Move to next line
+            dialogueState.currentLine++;
+            
+            if (dialogueState.currentLine < dialogueState.currentDialogue.lines.length) {
+                // More lines to show
+                dialogueState.currentChar = 0;
+                startTyping();
+            } else {
+                // Check if this dialogue has choices
+                if (dialogueState.currentDialogue.choices && !dialogueState.choiceSelected) {
+                    // Show choices instead of closing dialogue
+                    dialogueState.showingChoices = true;
+                    dialogueState.currentChoices = dialogueState.currentDialogue.choices;
+                } else {
+                    // End of dialogue
+                    closeDialogue();
+                }
+            }
+        }
+        
+        function closeDialogue() {
+            dialogueState.isOpen = false;
+            dialogueState.currentDialogue = null;
+            dialogueState.currentLine = 0;
+            dialogueState.currentChar = 0;
+            dialogueState.showingChoices = false;
+            dialogueState.currentChoices = null;
+            dialogueState.choiceSelected = false;
+            
+            if (dialogueState.typingTimer) {
+                clearTimeout(dialogueState.typingTimer);
+                dialogueState.typingTimer = null;
+            }
+        }
+        
+        function selectChoice(choiceIndex) {
+            if (!dialogueState.showingChoices || !dialogueState.currentChoices) return;
+            
+            const selectedChoice = dialogueState.currentChoices[choiceIndex];
+            if (!selectedChoice) return;
+            
+            // Mark choice as selected
+            dialogueState.choiceSelected = true;
+            dialogueState.showingChoices = false;
+            
+            // Start the next dialogue
+            if (selectedChoice.nextDialogue) {
+                showDialogue(selectedChoice.nextDialogue);
+            } else {
+                closeDialogue();
+            }
+        }
+        
+        function triggerNearbyDialogue() {
+            if (dialogueState.isOpen) return;
+            
+            // Check if player is near any interactive objects
+            const playerX = player.x;
+            const playerY = player.y;
+            const interactionDistance = 150; // Distance to trigger dialogue
+            
+            // Check if near desks
+            for (let i = 0; i < desks.length; i++) {
+                const desk = desks[i];
+                const deskCenterX = desk.x + desk.width/2;
+                const deskCenterY = desk.y + desk.height/2;
+                const distance = Math.sqrt(
+                    Math.pow(playerX - deskCenterX, 2) + 
+                    Math.pow(playerY - deskCenterY, 2)
+                );
+                
+                if (distance < interactionDistance) {
+                    // Check if this is Alex's desk (top right desk - index 1)
+                    if (i === 1) {
+                        showDialogue('alex_desk_interaction');
+                    } else {
+                        showDialogue('desk_interaction');
+                    }
+                    return;
+                }
+            }
+            
+            // Check if near plants
+            for (let plant of plants) {
+                const distance = Math.sqrt(
+                    Math.pow(playerX - plant.x, 2) + Math.pow(playerY - plant.y, 2)
+                );
+                if (distance < interactionDistance) {
+                    showDialogue('plant_interaction');
+                    return;
+                }
+            }
+            
+            // Check if near table
+            const tableDistance = Math.sqrt(
+                Math.pow(playerX - table.x, 2) + Math.pow(playerY - table.y, 2)
+            );
+            if (tableDistance < interactionDistance) {
+                showDialogue('table_interaction');
+                return;
+            }
+        }
+        
+        // Draw dialogue box on canvas
+        function drawDialogueBox() {
+            if (!dialogueState.isOpen || !dialogueState.currentDialogue) return;
+            
+            // If showing choices, draw choice interface
+            if (dialogueState.showingChoices && dialogueState.currentChoices) {
+                drawChoiceInterface();
+                return;
+            }
+            
+            const boxX = 20;
+            const boxY = GAME_HEIGHT - 140;
+            const boxWidth = GAME_WIDTH - 40;
+            const boxHeight = 120;
+            
+            // Draw dialogue box background
+            ctx.fillStyle = '#f8f9fa';
+            ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+            
+            // Draw dialogue box border
+            ctx.strokeStyle = '#343a40';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+            
+            // Draw inner shadow for depth
+            ctx.strokeStyle = '#6c757d';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxX + 2, boxY + 2, boxWidth - 4, boxHeight - 4);
+            
+            // Set text properties
+            ctx.font = '16px "Courier New", monospace';
+            ctx.fillStyle = '#212529';
+            
+            // Draw character name
+            const characterName = dialogueState.currentDialogue.character + ':';
+            ctx.fillStyle = '#495057';
+            ctx.font = 'bold 16px "Courier New", monospace';
+            ctx.fillText(characterName, boxX + 15, boxY + 25);
+            
+            // Draw dialogue text
+            ctx.fillStyle = '#212529';
+            ctx.font = '16px "Courier New", monospace';
+            const currentLine = dialogueState.currentDialogue.lines[dialogueState.currentLine];
+            
+            // Check if currentLine exists
+            if (!currentLine) {
+                return;
+            }
+            
+            const displayText = currentLine.substring(0, dialogueState.currentChar);
+            
+            // Word wrap the text
+            const maxWidth = boxWidth - 30;
+            const words = displayText.split(' ');
+            let line = '';
+            let y = boxY + 50;
+            
+            for (let i = 0; i < words.length; i++) {
+                const testLine = line + words[i] + ' ';
+                const metrics = ctx.measureText(testLine);
+                const testWidth = metrics.width;
+                
+                if (testWidth > maxWidth && i > 0) {
+                    ctx.fillText(line, boxX + 15, y);
+                    line = words[i] + ' ';
+                    y += 20;
+                } else {
+                    line = testLine;
+                }
+            }
+            ctx.fillText(line, boxX + 15, y);
+            
+            // Draw blinking arrow if text is complete
+            if (dialogueState.currentChar >= currentLine.length) {
+                ctx.fillStyle = '#6c757d';
+                ctx.font = '20px "Courier New", monospace';
+                const arrowX = boxX + boxWidth - 30;
+                const arrowY = boxY + boxHeight - 15;
+                
+                // Simple blinking effect
+                const time = Date.now();
+                if (Math.floor(time / 500) % 2 === 0) {
+                    ctx.fillText('▼', arrowX, arrowY);
+                }
+            }
+        }
+        
+        
+        // Draw choice interface
+        function drawChoiceInterface() {
+            const boxX = 20;
+            const boxY = GAME_HEIGHT - 200;
+            const boxWidth = GAME_WIDTH - 40;
+            const boxHeight = 180;
+            
+            // Draw choice box background
+            ctx.fillStyle = '#f8f9fa';
+            ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+            
+            // Draw choice box border
+            ctx.strokeStyle = '#343a40';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+            
+            // Draw inner shadow for depth
+            ctx.strokeStyle = '#6c757d';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(boxX + 2, boxY + 2, boxWidth - 4, boxHeight - 4);
+            
+            // Draw title
+            ctx.fillStyle = '#495057';
+            ctx.font = 'bold 18px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('How should you proceed?', boxX + boxWidth / 2, boxY + 30);
+            
+            // Draw choices
+            ctx.font = '14px "Courier New", monospace';
+            ctx.textAlign = 'left';
+            
+            const choiceHeight = 30;
+            const startY = boxY + 50;
+            
+            dialogueState.currentChoices.forEach((choice, index) => {
+                const choiceY = startY + (index * choiceHeight);
+                const choiceBoxX = boxX + 20;
+                const choiceBoxY = choiceY - 20;
+                const choiceBoxWidth = boxWidth - 40;
+                const choiceBoxHeight = 25;
+                
+                // Draw choice background
+                ctx.fillStyle = '#e9ecef';
+                ctx.fillRect(choiceBoxX, choiceBoxY, choiceBoxWidth, choiceBoxHeight);
+                
+                // Draw choice border
+                ctx.strokeStyle = '#6c757d';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(choiceBoxX, choiceBoxY, choiceBoxWidth, choiceBoxHeight);
+                
+                // Draw choice text
+                ctx.fillStyle = '#212529';
+                ctx.fillText(`${index + 1}. ${choice.text}`, choiceBoxX + 10, choiceY - 5);
+            });
+            
+            // Draw instruction
+            ctx.fillStyle = '#6c757d';
+            ctx.font = '12px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('Click on a choice or press 1-4 to select', boxX + boxWidth / 2, boxY + boxHeight - 10);
+            ctx.textAlign = 'left';
+        }
+        
+        // Show welcome dialogue when game starts
+        function showWelcomeDialogue() {
+            setTimeout(() => {
+                showDialogue('welcome');
+            }, 1000); // Show after 1 second
+        }
+        
+        // Audio control functions
+        function playMusic() {
+            if (!musicStarted) {
+                // First time playing - need user interaction
+                backgroundMusic.play().then(() => {
+                    isMusicPlaying = true;
+                    musicStarted = true;
+                }).catch(error => {
+                    console.log('Audio play failed:', error);
+                    // Show a message to user that they need to interact first
+                    alert('Please click the Play Music button to start the soundtrack!');
+                });
+            } else {
+                backgroundMusic.play();
+                isMusicPlaying = true;
+            }
+        }
+        
+        function attemptAutoplay() {
+            if (autoplayAttempted) return; // Don't try multiple times
+            autoplayAttempted = true;
+            
+            // Try to start music automatically when game loads
+            backgroundMusic.play().then(() => {
+                isMusicPlaying = true;
+                musicStarted = true;
+                console.log('Background music started automatically');
+            }).catch(error => {
+                console.log('Autoplay blocked by browser:', error);
+                // Autoplay was blocked - user will need to interact first
+                isMusicPlaying = false;
+                musicStarted = false;
+                // Show a subtle hint that music is available
+                showMusicHint();
+            });
+        }
+        
+        function tryStartMusicOnInteraction() {
+            if (musicStarted) return; // Already started
+            
+            backgroundMusic.play().then(() => {
+                isMusicPlaying = true;
+                musicStarted = true;
+                console.log('Background music started on user interaction');
+                // Remove any existing hint
+                removeMusicHint();
+            }).catch(error => {
+                console.log('Music start failed even with user interaction:', error);
+            });
+        }
+        
+        let musicHintElement = null;
+        
+        function showMusicHint() {
+            // Remove existing hint if any
+            removeMusicHint();
+            
+            // Add a subtle visual hint that music is available
+            musicHintElement = document.createElement('div');
+            musicHintElement.style.cssText = `
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                background: rgba(52, 73, 94, 0.9);
+                color: white;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+                z-index: 1000;
+                animation: fadeInOut 4s ease-in-out;
+                cursor: pointer;
+            `;
+            musicHintElement.textContent = 'Click anywhere or press any key to start music';
+            musicHintElement.onclick = tryStartMusicOnInteraction;
+            document.body.appendChild(musicHintElement);
+            
+            // Remove hint after 4 seconds
+            setTimeout(() => {
+                removeMusicHint();
+            }, 4000);
+        }
+        
+        function removeMusicHint() {
+            if (musicHintElement && musicHintElement.parentNode) {
+                musicHintElement.parentNode.removeChild(musicHintElement);
+                musicHintElement = null;
+            }
+        }
+        
+        function pauseMusic() {
+            backgroundMusic.pause();
+            isMusicPlaying = false;
+        }
+        
+        function setVolume(volume) {
+            backgroundMusic.volume = volume / 100;
+        }
+        
+        // Add global event listeners to detect any user interaction
+        document.addEventListener('keydown', tryStartMusicOnInteraction, { once: true });
+        document.addEventListener('click', tryStartMusicOnInteraction, { once: true });
+        document.addEventListener('touchstart', tryStartMusicOnInteraction, { once: true });
+        
+        // Draw the game
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#95a5a6';
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+            
+            // Draw grid background
+            drawGrid();
+            
+            // Draw walls
+            drawWalls();
+            
+            // Draw desks
+            drawDesks();
+            
+            // Draw table
+            drawTable();
+            
+            // Draw plants
+            drawPlants();
+            
+            // Draw boundary
+            ctx.strokeStyle = '#34495e';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(BOUNDARY_PADDING, BOUNDARY_PADDING, 
+                          GAME_WIDTH - 2 * BOUNDARY_PADDING, 
+                          GAME_HEIGHT - 2 * BOUNDARY_PADDING);
+            
+            // Draw character
+            drawCharacter();
+            
+            // Draw dialogue box (on top of everything)
+            drawDialogueBox();
+        }
+        
+        // Game loop
+        function gameLoop() {
+            updatePlayer();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Add click handling for choices
+        canvas.addEventListener('click', (e) => {
+            if (!dialogueState.showingChoices || !dialogueState.currentChoices) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Check if click is within choice area
+            const boxX = 20;
+            const boxY = GAME_HEIGHT - 200;
+            const boxWidth = GAME_WIDTH - 40;
+            const choiceHeight = 30;
+            const startY = boxY + 50;
+            
+            if (x >= boxX + 20 && x <= boxX + boxWidth - 20) {
+                dialogueState.currentChoices.forEach((choice, index) => {
+                    const choiceY = startY + (index * choiceHeight);
+                    const choiceBoxY = choiceY - 20;
+                    const choiceBoxHeight = 25;
+                    
+                    if (y >= choiceBoxY && y <= choiceBoxY + choiceBoxHeight) {
+                        selectChoice(index);
+                    }
+                });
+            }
+        });
+        
+        // Start the game
+        gameLoop();
+        
+        // Attempt to start background music automatically
+        attemptAutoplay();
+        
+        // Show welcome dialogue after a short delay
+        showWelcomeDialogue();
+    </script>
+</body>
+</html>
